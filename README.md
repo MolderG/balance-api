@@ -39,15 +39,17 @@ Event bodies and responses:
 {"type":"deposit","destination":"100","amount":10}
 201 {"destination":{"id":"100","balance":10}}
 
-# withdraw from an existing account
+# withdraw from an existing account with enough balance
 {"type":"withdraw","origin":"100","amount":5}
 201 {"origin":{"id":"100","balance":5}}
-# from an unknown account -> 404 0
+# unknown account        -> 404 0
+# insufficient balance   -> 422 {"error":"insufficient_funds"}
 
 # transfer (creates the destination if needed)
 {"type":"transfer","origin":"100","amount":15,"destination":"300"}
 201 {"origin":{"id":"100","balance":0},"destination":{"id":"300","balance":15}}
-# from an unknown origin -> 404 0
+# unknown origin         -> 404 0
+# insufficient balance   -> 422 {"error":"insufficient_funds"}
 ```
 
 ## Structure
@@ -62,23 +64,24 @@ test/bank.test.ts  unit tests for the domain.
 
 ## Design decisions
 
-- **Business logic is isolated from transport.** `Bank` has no knowledge of
-  HTTP or JSON, so it is tested directly, without spinning up a server.
-- **One storage seam.** The in-memory `Map` lives behind `Bank`. Adding real
-  persistence later means changing that one class and nothing else.
-- **No speculative features.** No auth, validation, logging framework or extra
-  event types — only what the spec describes. The code stays small and easy to
-  change on request.
+- **Business logic is isolated from transport.** `Bank` has no knowledge of HTTP
+  or JSON, so it is tested directly, without spinning up a server.
+- **Operation outcomes are modelled explicitly.** `withdraw` and `transfer`
+  return a tagged result (`ok` / `account_not_found` / `insufficient_funds`)
+  instead of throwing for control flow. The HTTP layer maps each outcome to a
+  status code.
+- **Transfers are consistent.** The origin is only debited after the funds check
+  passes, and the destination is only credited once the debit succeeded — a
+  failed transfer leaves both accounts untouched.
+- **Reads have no side effects.** `GET /balance` only reads.
+- **`404` returns the body `0`** for unknown accounts because that is what the
+  provided test suite expects. For the insufficient-funds case (which the suite
+  does not cover) a structured `422` body was chosen instead.
+- **No speculative features.** No auth, persistence layer or extra event types —
+  only what the spec describes.
 
 ## Deploying
 
 Any platform that runs a single long-lived process works. Because state is in
 memory, do **not** use serverless / multi-instance setups — the `Map` would be
 split across instances and reset between calls.
-
-With Docker:
-
-```bash
-docker build -t balance-api .
-docker run -p 3000:3000 -e PORT=3000 balance-api
-```
