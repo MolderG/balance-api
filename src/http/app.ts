@@ -11,8 +11,7 @@ export function createApp(bank: Bank): Express {
   });
 
   app.get('/balance', (req: Request, res: Response) => {
-    const id = String(req.query.account_id);
-    const balance = bank.balanceOf(id);
+    const balance = bank.balanceOf(String(req.query.account_id));
     if (balance === undefined) {
       res.status(404).json(0);
       return;
@@ -30,21 +29,29 @@ export function createApp(bank: Bank): Express {
         return;
       }
       case 'withdraw': {
-        const account = bank.withdraw(String(origin), Number(amount));
-        if (account === undefined) {
+        const result = bank.withdraw(String(origin), Number(amount));
+        if (result.status === 'account_not_found') {
           res.status(404).json(0);
           return;
         }
-        res.status(201).json({ origin: account });
+        if (result.status === 'insufficient_funds') {
+          res.status(422).json({ error: 'insufficient_funds' });
+          return;
+        }
+        res.status(201).json({ origin: result.account });
         return;
       }
       case 'transfer': {
         const result = bank.transfer(String(origin), String(destination), Number(amount));
-        if (result === undefined) {
+        if (result.status === 'account_not_found') {
           res.status(404).json(0);
           return;
         }
-        res.status(201).json(result);
+        if (result.status === 'insufficient_funds') {
+          res.status(422).json({ error: 'insufficient_funds' });
+          return;
+        }
+        res.status(201).json({ origin: result.origin, destination: result.destination });
         return;
       }
       default:
